@@ -1,0 +1,48 @@
+name: "Prefix Release Assets"
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set REPO_NAME environment variable
+        shell: bash
+        run: echo "REPO_NAME=$(echo $GITHUB_REPOSITORY | cut -d '/' -f2)" >> $GITHUB_ENV
+
+      - name: Create file list for archiving
+        run: |
+          # Create a stable list of files to include, excluding unwanted patterns
+          find . -type f -not -path "./.git/*" -not -path "./.github/*" -not -path "./.vscode/*" -not -name "*.DS_Store" -not -name "*.gitignore" > files_to_archive.txt
+          
+          # Print the list for debugging purposes
+          echo "Files to be archived:"
+          cat files_to_archive.txt
+
+      - name: Create ZIP Archive
+        run: |
+          # Create ZIP using the file list
+          # The -@ option tells zip to read the list of files from stdin
+          zip -r "${{ env.REPO_NAME }}.zip" -@ < files_to_archive.txt
+
+      - name: Create tar.gz Archive
+        run: |
+          # Create TAR using the file list
+          # The -T option tells tar to use a file containing the list of files to archive
+          tar -czf "${{ env.REPO_NAME }}.tar.gz" -T files_to_archive.txt
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.REPO_NAME }}.zip
+            ${{ env.REPO_NAME }}.tar.gz
