@@ -3,10 +3,12 @@ import pytest
 from bs4 import BeautifulSoup
 from web2json.core.html_parser import (
     parse_content,
+    extract_heading_level
+)
+from web2json.core.content_extractor import (
     get_element_text,
     get_list_text_content,
-    extract_list_items,
-    extract_heading_level
+    extract_list_items
 )
 
 def test_get_element_text_no_styles():
