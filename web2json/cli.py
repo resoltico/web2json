@@ -2,14 +2,15 @@
 import argparse
 import logging
 import sys
-from concurrent.futures import ThreadPoolExecutor
-from typing import Optional, Tuple
-from .config import PROGRAM, VERSION, DEFAULT_OUTPUT_FOLDER, MAX_WORKERS
-from .core.url_processor import validate_url, fetch_page
-from .core.html_parser import parse_content
-from .core.json_converter import save_json
-from .utils.file_handler import generate_filename
+import os
+from typing import Optional, Tuple, List
+from pathlib import Path
+
+from .config import PROGRAM, VERSION, DEFAULT_OUTPUT_FOLDER
+from .utils.url import validate_url
+from .utils.pipeline_runner import process_url, bulk_process_urls
 from .utils.logging_config import setup_logging
+from .exceptions import Web2JsonError
 
 def show_banner() -> None:
     """Display program banner."""
@@ -23,44 +24,64 @@ def show_examples() -> str:
     """Return usage examples."""
     return """Examples:
     # Process single URL:
-    web2json.py -u https://example.com/article/12345
+    web2json -u https://example.com/article/12345
     
     # Custom output name:
-    web2json.py -u https://example.com/article/12345 -o article_12345
+    web2json -u https://example.com/article/12345 -o article_12345
     
     # Process URLs from file:
-    web2json.py -f urls.txt
+    web2json -f urls.txt
     
     # Preserve HTML styles:
-    web2json.py -u https://example.com/article/12345 --preserve-styles
+    web2json -u https://example.com/article/12345 --preserve-styles
     
     # Enable verbose logging:
-    web2json.py -u https://example.com/article/12345 -v
+    web2json -u https://example.com/article/12345 -v
     
     # Custom output directory:
-    web2json.py -u https://example.com/article/12345 --output-dir ~/web_data"""
+    web2json -u https://example.com/article/12345 --output-dir ~/web_data"""
 
 def process_single_url(url: str, output_dir: str, custom_name: Optional[str] = None, preserve_styles: bool = False) -> bool:
     """Process single URL to JSON."""
     if not validate_url(url):
+        logging.error(f"Invalid URL: {url}")
         return False
         
     logging.info(f"Processing: {url}")
-    html = fetch_page(url)
-    if not html:
-        return False
-        
+    
     try:
-        content = parse_content(html, url, preserve_styles)
-        dir_path, filename = generate_filename(url, output_dir, custom_name)
-        return save_json(content, dir_path, filename)
-    except Exception as e:
+        # Create output path if custom name is provided
+        output_path = None
+        if custom_name:
+            # Ensure the directory exists
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = os.path.join(output_dir, f"{custom_name}.json")
+        else:
+            # Pipeline runner will handle filename generation
+            os.makedirs(output_dir, exist_ok=True)
+            from .utils.filesystem import generate_filename
+            dir_path, filename = generate_filename(url, output_dir)
+            output_path = os.path.join(dir_path, filename)
+        
+        # Process the URL
+        result = process_url(
+            url=url, 
+            output_path=output_path,
+            preserve_styles=preserve_styles
+        )
+        
+        return result.get('exported', False)
+    except Web2JsonError as e:
         logging.error(f"Error processing {url}: {str(e)}")
+        return False
+    except Exception as e:
+        logging.error(f"Unexpected error processing {url}: {str(e)}")
         return False
 
 def process_urls_from_file(urls_file: str, output_dir: str, preserve_styles: bool = False) -> Tuple[int, int]:
     """Process multiple URLs from file."""
     try:
+        # Read URLs from file
         with open(urls_file, "r", encoding='utf-8') as file:
             urls = [line.strip() for line in file if line.strip()]
             
@@ -68,26 +89,23 @@ def process_urls_from_file(urls_file: str, output_dir: str, preserve_styles: boo
             logging.error(f"No URLs found in file: {urls_file}")
             return (0, 0)
             
-        success_count = fail_count = 0
+        # Validate URLs
+        valid_urls = []
+        for url in urls:
+            if validate_url(url):
+                valid_urls.append(url)
+            else:
+                logging.warning(f"Skipping invalid URL: {url}")
         
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = []
-            for url in urls:
-                if validate_url(url):
-                    futures.append(
-                        executor.submit(process_single_url, url, output_dir, None, preserve_styles)
-                    )
-                else:
-                    fail_count += 1
-                    
-            for future in futures:
-                if future.result():
-                    success_count += 1
-                else:
-                    fail_count += 1
-                    
-        logging.info(f"Processing complete: {success_count} successful, {fail_count} failed")
-        return (success_count, fail_count)
+        if not valid_urls:
+            logging.error("No valid URLs found in file")
+            return (0, 0)
+            
+        # Process valid URLs
+        logging.info(f"Processing {len(valid_urls)} URLs from file")
+        result = bulk_process_urls(valid_urls, output_dir, preserve_styles)
+        
+        return (result['success'], result['failure'])
         
     except Exception as e:
         logging.error(f"Error processing URLs file: {str(e)}")

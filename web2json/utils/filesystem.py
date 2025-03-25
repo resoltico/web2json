@@ -1,28 +1,52 @@
 """
-File and path handling functionality.
+File system utilities for web2json.
 """
 import os
 import logging
 import unicodedata
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 from urllib.parse import urlparse
 from datetime import datetime
-from ..config import MAX_FILENAME_LENGTH, MAX_PATH_LENGTH
 from ..exceptions import PathError
+from ..config import MAX_FILENAME_LENGTH, MAX_PATH_LENGTH, DEFAULT_OUTPUT_FOLDER
 
 def expand_path(path: str) -> str:
-   """Expand and normalize path."""
-   try:
-       expanded = os.path.expanduser(path)
-       expanded = os.path.expandvars(expanded)
-       return os.path.normpath(expanded)
-   except Exception as e:
-       raise PathError(f"Failed to expand path '{path}': {str(e)}")
+    """Expand and normalize path.
+    
+    Args:
+        path: Path to expand
+        
+    Returns:
+        Expanded path
+        
+    Raises:
+        PathError: If path expansion fails
+    """
+    try:
+        if not path:
+            raise ValueError("Path cannot be empty")
+            
+        expanded = os.path.expanduser(path)
+        expanded = os.path.expandvars(expanded)
+        return os.path.normpath(expanded)
+    except Exception as e:
+        raise PathError(f"Failed to expand path '{path}': {str(e)}")
 
 def is_safe_path(base_dir: str, path: str) -> bool:
-   """Check if path is within base directory."""
+   """Check if path is within base directory.
+   
+   Args:
+       base_dir: Base directory
+       path: Path to check
+       
+   Returns:
+       True if path is within base directory
+   """
    try:
+       if not path or not base_dir:
+           return False
+           
        base_abs = os.path.abspath(base_dir)
        path_abs = os.path.abspath(path)
        common = os.path.commonpath([base_abs, path_abs])
@@ -31,7 +55,14 @@ def is_safe_path(base_dir: str, path: str) -> bool:
        return False
 
 def sanitize_filename(filename: str) -> str:
-   """Sanitize filename for safe OS processing."""
+   """Sanitize filename for safe OS processing.
+   
+   Args:
+       filename: Filename to sanitize
+       
+   Returns:
+       Sanitized filename
+   """
    # Handle empty filenames
    if not filename:
        return ""
@@ -78,7 +109,19 @@ def sanitize_filename(filename: str) -> str:
    return sanitized + ext if ext else sanitized
 
 def validate_output_path(dir_path: str, filename: str) -> Optional[str]:
-   """Validate and prepare output path."""
+   """Validate and prepare output path.
+   
+   Args:
+       dir_path: Directory path
+       filename: Filename
+       
+   Returns:
+       Full validated path
+       
+   Raises:
+       ValueError: If path is invalid
+       Exception: If path creation fails
+   """
    try:
        path_obj = Path(dir_path) / filename
        
@@ -105,7 +148,19 @@ def validate_output_path(dir_path: str, filename: str) -> Optional[str]:
        raise e
 
 def generate_filename(url: str, output_dir: str, custom_name: Optional[str] = None) -> Tuple[str, str]:
-   """Generate safe filename from URL or custom name."""
+   """Generate safe filename from URL or custom name.
+   
+   Args:
+       url: Source URL
+       output_dir: Output directory
+       custom_name: Custom filename
+       
+   Returns:
+       Tuple of (directory path, filename)
+       
+   Raises:
+       PathError: If path generation fails
+   """
    if not url or not output_dir:
        raise PathError("URL and output directory cannot be empty")
        
@@ -152,3 +207,22 @@ def generate_filename(url: str, output_dir: str, custom_name: Optional[str] = No
        
    except Exception as e:
        raise PathError(f"Failed to process output path: {str(e)}")
+
+def ensure_directory(directory: Union[str, Path]) -> Path:
+    """Ensure directory exists, creating it if necessary.
+    
+    Args:
+        directory: Directory path
+        
+    Returns:
+        Path object for the directory
+        
+    Raises:
+        PathError: If directory creation fails
+    """
+    path = Path(directory)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    except Exception as e:
+        raise PathError(f"Failed to create directory {directory}: {str(e)}")
