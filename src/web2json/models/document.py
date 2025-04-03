@@ -8,9 +8,9 @@ from typing import Dict, List, Optional, Any, Union
 import logging
 import json
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 
-from web2json.models.content import ContentItem
+# Import but don't use directly to avoid circular imports
 from web2json.utils.errors import ExportError
 
 
@@ -39,7 +39,7 @@ class Document(BaseModel):
     """Main document model."""
     
     title: str = Field(..., description="Document title")
-    content: List[ContentItem] = Field(default_factory=list, description="Document content")
+    content: List[Dict[str, Any]] = Field(default_factory=list, description="Document content")
     metadata: Metadata = Field(..., description="Document metadata")
     
     @model_validator(mode="before")
@@ -54,18 +54,10 @@ class Document(BaseModel):
             if "meta" not in metadata_dict:
                 metadata_dict["meta"] = None
                 
-            # Create metadata directly - removed redundant condition check
+            # Create metadata directly
             data["metadata"] = Metadata(**metadata_dict)
         
         return data
-    
-    @field_validator("title")
-    @classmethod
-    def title_must_not_be_empty(cls, v: str) -> str:
-        """Validate that title is not empty."""
-        if not v or not v.strip():
-            return "No Title"
-        return v
     
     def model_dump_json(self, **kwargs) -> str:
         """Convert the model to a JSON string.
